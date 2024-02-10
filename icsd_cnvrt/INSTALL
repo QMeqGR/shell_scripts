@@ -1,0 +1,41 @@
+To install and use the scripts:
+
+1. untar the tarball
+
+tar xvzf icsd_scripts.tgz
+
+2. edit the files
+
+icsd_cnvrt.sh  and  wyckoff.sh
+
+Change the lines
+
+CVT_TOP=/path-to-the-scripts/icsd_cnvrt/
+
+3. You can then create symlinks from your bin
+directory to icsd_cnvrt.sh and also
+to wyckoff.sh if you like:
+
+ln -s /path-to-the-scripts/icsd_cnvrt/icsd_cnvrt.sh ~/bin/icsd_cnvrt
+ln -s /path-to-the-scripts/icsd_cnvrt/wyckoff.sh ~/bin/wyckoff
+
+4. Then try wyckoff:
+
+[ehm]$ wyckoff -s "R -3 m" -x 0.0 -y 0.0 -z 0.0
+        0.0000000000         0.0000000000         0.0000000000
+        0.6666666667         0.3333333333         0.3333333333
+        0.3333333333         0.6666666667         0.6666666667
+
+
+5. Then try something from icsd:
+
+[ehm]$ icsd_cnvrt -f wyckoff.in -P
+
+You should have a POSCAR file for output.
+
+
+Any problems or bugs?
+Please drop me a line at:  ehmajzo@sandia.gov
+
+Eric
+

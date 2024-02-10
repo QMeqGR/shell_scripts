@@ -1,0 +1,22 @@
+ICSD issues:
+
+1. There are some icsd files which
+have coordinates listed as 0.3333000
+or 0.6667000.  The floating point values
+are not high enough precision for VASP during
+the symmetry checking routine.  Replace them
+with 1/3 or 2/3, repsectively, as appropriate.
+The fractions will be properly parsed and will
+have the full precision necessary to prevent
+errors.
+
+2. There are some icsd files which have the header line
+
+N [some_name] [space group] blah blah blah
+
+The icsd_cnvrt script parses the space group by looking for
+the brackets "[" and "]".  If you remove the "[some_name]"
+set of brackets which don't contain the space group, then
+icsd_cnvrt will properly parse the file.
+
+ 
