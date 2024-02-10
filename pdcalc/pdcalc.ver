@@ -1,0 +1,7 @@
+package_version=2.2
+PACKAGE_TOP=/home/ehm/src/pdcalc
+
+# version 2.2, 14 Sept 2017, added bader charge stuff
+# version 2.1, 25 July 2017
+# version 2.0, summer 2017
+# -- first creation of the package

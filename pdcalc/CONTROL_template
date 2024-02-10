@@ -1,0 +1,25 @@
+Mass_convservation_constants_enter_atom_Type_then_data_type_then_value_if_constant
+up_to_4_can_be_used_as_tie
+
+hydrogen const 1
+Li    const 4
+B     const 4
+Mg    const 10
+Ni    const 6
+
+tie-line_calculation:  yes
+tieline_steps: 10
+Contant_variable(T(K)_or_P(Pa):  P
+Const_variable_value(K_or_Pa):   101325
+variable_start: 10
+variable_end: 1900
+variable_incr:  10
+printall: yes
+print_comp_map: yes
+debug: 0
+reactions_at_fixed_T: 425
+volumescale(default1): 0.0224
+pressure_constraint: L
+decrement_gases(1_or_0): 0
+increment_lower_P_bound(1_or_0): 0
+max_SCP_loops(min_1): 1

@@ -1,0 +1,31 @@
+#!/bin/sh
+
+script_name="toten_at_T.sh"
+script_date="23 Dec 2013"
+script_vers="1.0"
+
+# Usage: toten_at_T.sh 300
+
+infile="data.dat"
+T=$1;
+
+if [ "$T" == "" ]; then
+    echo "Must enter a temperature in K on command line. Using T=10K."
+    T=10;
+fi
+
+phaselist=`cat $infile | gawk --source '($1~"phase"){read=1;}(read==1 && $1!~"end" && $1!~"phase"){print $1}($1~"end"){read=0;}'`
+echo $phaselist;
+
+gawk --source 'BEGIN{printf("%-20s%15s%10s%5d%15s\n","phase","static","T=",TEMP,"diff");}' -v TEMP=$T
+for phase in $phaselist; do
+    static=`cat $infile | gawk --source '($1==PHS){print $5}' -v PHS="$phase"`;
+    dynamic=`cat $phase.dat | gawk --source '($1==TEMP){print $2}' -v TEMP=$T`;
+    toten=`echo $static $dynamic | gawk '{print $1+$2}'`;
+    #echo "phase= "$phase " static= "$static " dynamic= "$dynamic " toten= "$toten;    
+    echo $phase $static $toten | gawk '{printf("%-20s%15.5f%15.5f%15.5f\n",$1,$2,$3,$3-$2);}';    
+done
+
+exit
+
+

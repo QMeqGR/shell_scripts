@@ -1,0 +1,224 @@
+#!/bin/sh
+
+echo "Gives completely wrong answers!!! Don't use!!!"
+exit
+
+#################################################
+# Editable things
+#################################################
+# 
+
+script_name="rxn_enthalpy.sh";
+version="0.1"
+ver_date="Mar 2014"
+
+
+# version 0.1, March 2014
+
+
+#################################################
+# No need to edit below this line
+#################################################
+
+######################################
+# defaults
+help=0;
+datafile="data.dat"; 
+dbg=0;
+LHS="";
+LHStoten=0;
+RHS="";
+RHStoten=0;
+T="300"; # center temperature for gaussian in K
+Tcent="300";
+sigma="1"; # sigma of transition in K
+
+
+######################################
+declare SWITCH
+while getopts "dhL:R:T:w:" SWITCH; do
+    case $SWITCH in
+    d) dbg=1 ;;
+    h) help=1 ;;
+    L) LHS=$OPTARG ;;
+    R) RHS=$OPTARG ;;
+    T) T=$OPTARG; Tcent=$OPTARG ;;
+    w) sigma=$OPTARG ;;
+    esac
+done
+
+
+
+if [ $# -eq 0 ] || [ $help -eq 1 ]; then
+    echo
+    echo "#######################"
+    echo "#  "$script_name
+    echo "#######################"
+    echo
+    echo "Version "$version
+    echo $ver_date
+    echo
+    echo "use: "$script_name" -f infile  [dhL:R:T:w:]"
+    echo 
+    echo
+    echo "    -h --- show this help"
+    echo "    -d --- debug (default is OFF)"
+    echo
+    echo "         ** EQUATION INPUT **"
+    echo "            example: 1 CaH2 --> 1 Ca 1 H2"
+    echo "            note: no '+' sign"
+    echo "            coefficients must be given, even if '1'"
+    echo
+    echo "    -L -*- LHS of rxn eqn"
+    echo "           e.g. -L \"2 CaH2\""
+    echo "    -R -*- RHS of rxn eqn"
+    echo "           e.g. -R \"2 Ca 2 H2\""
+    echo
+    echo "    -T -*- center of gaussian in K (def "$T")"
+    echo "    -w -*- sigma of gaussian in K  (def  "$sigma")"
+    echo "           check that wtsum is 1.0000000000 (to ten decimal places)"
+    echo
+    echo
+    echo "    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "    WARN: This calculation excludes gas entropy terms."
+    echo "          This is a BIG error for gas desorption reactions."
+    echo "    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo
+    echo Eric Majzoub
+    echo University of Missouri - St. Louis
+    echo 24 March 2014
+    echo
+    exit
+fi
+
+
+###################################################
+###################################################
+
+lhscount=$(echo $LHS | gawk --source '(NF>0){ if (NF%2!=0){print -1}else{print NF} }');
+rhscount=$(echo $RHS | gawk --source '(NF>0){ if (NF%2!=0){print -1}else{print NF} }');
+
+if [ $dbg -eq 1 ]; then
+    echo "lhscount= "$lhscount
+    echo "rhscount= "$rhscount
+fi
+
+if [ $lhscount -eq -1 ] || [ $rhscount -eq -1 ]; then
+    echo "Check equation input. Exiting."
+    exit;
+fi
+
+if [ "$T" == "" ]; then
+    echo "Must enter a temperature in K on command line. Using T=10K."
+    T=10;
+fi
+
+lhs_phaselist=$(echo $LHS | gawk --source '(NF>0){for(i=2;i<NF+1;i=i+2){printf("%s ",$i);}}');
+lhs_coefflist=$(echo $LHS | gawk --source '(NF>0){for(i=1;i<NF+1;i=i+2){printf("%s ",$i);}}');
+rhs_phaselist=$(echo $RHS | gawk --source '(NF>0){for(i=2;i<NF+1;i=i+2){printf("%s ",$i);}}');
+rhs_coefflist=$(echo $RHS | gawk --source '(NF>0){for(i=1;i<NF+1;i=i+2){printf("%s ",$i);}}');
+if [ $dbg -eq 1 ]; then
+    echo "lhs_phaselist= "$lhs_phaselist;
+    echo "rhs_phaselist= "$rhs_phaselist;
+    echo "lhs_coefflist= "$lhs_coefflist;
+    echo "rhs_coefflist= "$rhs_coefflist;
+fi
+
+# make an array containing both the coeffs and the phases
+lhscoeffarr=($lhs_coefflist);
+rhscoeffarr=($rhs_coefflist);
+
+
+if [ $dbg -eq 1 ]; then
+    gawk --source 'BEGIN{printf("%-20s%15s%10s%5d%15s\n","phase","static","T=",TEMP,"diff");}' -v TEMP=$T
+fi
+
+N=$((Tcent+Tcent%2));
+echo "N= "$N;
+echo "sigma= "$sigma
+gausswtlist=$(gawk --source 'BEGIN{PI=3.14159265358979; for(i=T-(N-1)/2; i<T+N/2; i++){printf("%10.6f ",1/(S*sqrt(2*PI))*exp(-(i-T)**2/(2*S**2)));}}' -v N=$N -v S=$sigma -v T=$T  2>/dev/null);
+
+if [ $dbg -eq 1 ]; then
+    echo "gausswtlist= "$gausswtlist
+fi
+
+#echo "ngausslist= "$(echo $gausswtlist | wc )
+
+### MAIN LOOP ###
+
+gloop=0; dHw=0; dEw=0;
+for gwt in $gausswtlist; do
+
+# shell variable T gets reassigned here
+T=$(gawk --source 'BEGIN{t=T-(N-1)/2 + C; printf("%d",t);}' -v T="$Tcent" -v N="$N" -v C="$gloop")
+gloop=$((gloop+1));
+
+skip=$(gawk --source 'BEGIN{if(A<B){printf("%d",1);}else{printf("%d",0);}}' -v A="$gwt" -v B="1e-6")
+#echo "gwt= "$gwt "   skip= "$skip
+if [ $skip -eq 1 ]; then
+    continue;
+fi
+
+lcount=0; LHStoten=0; LHStotenth=0;
+for phase in $lhs_phaselist; do
+    coeff=${lhscoeffarr[$lcount]};
+    lcount=$((lcount+1));
+    if [ $dbg -eq 1 ]; then
+	echo "coeff= "$coeff "  phase= "$phase;
+    fi
+    static=$(cat $datafile | gawk --source '($1==PHS){print $5}' -v PHS="$phase");
+    dynamic=$(cat $phase.dat | gawk --source '($1==TEMP){print $2}' -v TEMP="$T");
+    entropy=$(cat $phase.dat | gawk --source '($1==TEMP){print $3}' -v TEMP="$T");
+    toten=$(echo $static $dynamic | gawk '{print $1+$2}');
+    LHStoten=$(echo $coeff $toten $LHStoten | gawk '{print $1*$2+$3}');
+    LHStotenth=$(echo $coeff $entropy $LHStotenth | gawk --source '{print $1*$2*TEMP+$3}' -v TEMP="$T" );
+    #echo "phase= "$phase " static= "$static " dynamic= "$dynamic " toten= "$toten;
+    if [ $dbg -eq 1 ]; then
+	echo $phase $static $toten | gawk '{printf("%-20s%15.5f%15.5f%15.5f\n",$1,$2,$3,$3-$2);}';
+    fi
+done
+
+rcount=0; RHStoten=0; RHStotentt=0;
+for phase in $rhs_phaselist; do
+    coeff=${rhscoeffarr[$rcount]};
+    rcount=$((rcount+1));
+    if [ $dbg -eq 1 ]; then
+	echo "coeff= "$coeff "  phase= "$phase;
+    fi
+    static=$(cat $datafile | gawk --source '($1==PHS){print $5}' -v PHS="$phase");
+    dynamic=$(cat $phase.dat | gawk --source '($1==TEMP){print $2}' -v TEMP="$T");
+    entropy=$(cat $phase.dat | gawk --source '($1==TEMP){print $3}' -v TEMP="$T");
+    toten=$(echo $static $dynamic | gawk '{print $1+$2}');
+    RHStoten=$(echo $coeff $toten $RHStoten | gawk '{print $1*$2+$3}');
+    RHStotenth=$(echo $coeff $entropy $RHStotenth | gawk --source '{print $1*$2*TEMP+$3}' -v TEMP="$T" );
+    #echo "phase= "$phase " static= "$static " dynamic= "$dynamic " toten= "$toten;    
+    if [ $dbg -eq 1 ]; then
+	echo $phase $static $toten | gawk '{printf("%-20s%15.5f%15.5f%15.5f\n",$1,$2,$3,$3-$2);}';
+    fi
+done
+
+if [ $dbg -eq 1 ]; then
+    echo "LHStoten= "$LHStoten "    LHStotenth= "$LHStotenth
+    echo "RHStoten= "$RHStoten "    RHStotenth= "$RHStotenth
+fi
+
+# calculate the dE value
+dE=$(echo $LHStoten $RHStoten | gawk '{printf("%12.6f\n",($2-$1)*96.48306883);}');
+dEw=$(gawk --source 'BEGIN{printf("%15.10f",A*B);}' -v A="$dE" -v B="$gwt");
+Ew=$(gawk --source 'BEGIN{printf("%15.10f",A+B);}' -v A="$Ew" -v B="$dEw");
+if [ $dbg -eq 1 ]; then
+    echo "dE= "$dE" T= "$T" weight= "$gwt" dEw= "$dEw"   Ew= "$Ew
+fi
+
+# calculate the dH value
+dH=$(echo $LHStotenth $RHStotenth | gawk '{printf("%12.6f\n",($2-$1)*96.48306883);}');
+dHw=$(gawk --source 'BEGIN{printf("%15.10f",A*B);}' -v A="$dH" -v B="$gwt");
+Hw=$(gawk --source 'BEGIN{printf("%15.10f",A+B);}' -v A="$Hw" -v B="$dHw");
+if [ $dbg -eq 1 ]; then
+    echo "dH= "$dH" T= "$T" weight= "$gwt" dHw= "$dHw"   Hw= "$Hw
+fi
+
+
+done
+wtsum=$(echo $gausswtlist | gawk '(NF>1){for(i=1;i<NF;i++){sum+=$i;}; printf("%.10f",sum);}')
+echo "Hw= "$Hw " [kJ/mol rxn]      Ew= "$Ew "[kJ/mol rxn]    wtsum= "$wtsum

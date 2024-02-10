@@ -1,0 +1,283 @@
+#!/bin/bash
+
+# Change only this line
+PDTOP=$HOME/src/pdcalc_v2
+export AWKPATH=$AWKPATH:$HOME/src/pdcalc_v2
+
+script_name="pd_prep_data.sh"
+script_version="2.1"
+script_date="01 May 2014"
+
+# 
+# version 2.1  01 May 2014
+#       -- add output of densities
+#
+#
+# pdcalc V2
+# 18 October 2013
+#
+# general phase diagram calculation with gases
+# E. Majzoub
+# UMSL
+
+# defaults
+IgnoreSoftModes=0;
+SoftModeCutoff=-1;
+UseModesFiles=0;
+help=0;
+MINDENSITY=0.1;
+isgas=0;
+dbg=0;
+
+declare SWITCH
+while getopts "dhC:IM" SWITCH; do
+    case $SWITCH in
+    h) help=1;;
+    C) SoftModeCutoff=$OPTARG;;
+    d) dbg=1;;
+    I) IgnoreSoftModes=1; echo "WARN: Ignoring soft modes";;
+    M) UseModesFiles=1; echo "WARN: Using existing modes files" ;;	
+    esac
+done
+
+if [ $help -eq 1 ]; then
+    echo
+    echo "Command line options:"
+    echo
+    echo "-d -- debug output"
+    echo "-h -- show help"
+    echo
+    echo "-C -- change soft mode cutoff (default is 8 cm-1)"
+    echo "-I -- ignore soft modes"
+    echo "      WARN: this uses soft modes as real"
+    echo
+    echo "-M -- Use existing modes files (debugging only)"
+    echo
+    exit
+fi
+
+##################################################
+##################################################
+
+echo "==========================================="
+echo "=  $script_name  ver  $script_version"
+echo "==========================================="
+
+
+#make octave directory
+if [ ! -d octave_work ]; then
+    echo "Making directory octave_work"
+    mkdir octave_work
+fi
+
+if [ -d octave_work/modes ] && [ $UseModesFiles -eq 0 ]; then
+    echo "Removing old octave_work/modes directory"
+    rm -rf octave_work/modes;
+fi
+if [ ! -d octave_work/modes ]; then
+    echo "Making directory octave_work/modes"
+    mkdir octave_work/modes
+fi
+
+if [ -d octave_work/info ]; then
+    echo "Removing old octave_work/info directory"
+    rm -rf octave_work/info;
+fi
+if [ ! -d octave_work/info ]; then
+    echo "Making directory octave_work/info"
+    mkdir octave_work/info
+    gawk --source 'BEGIN{printf("%-30s%10s%9s%8s%13s\n",tag,molwt,dens,gas,en);}' -v tag=tag -v molwt=molwtfu -v dens=density -v gas=isgas -v en=epfu >> octave_work/info/info.dat
+fi
+
+
+echo "control_file" > octave_work/data.dat
+
+if [ $IgnoreSoftModes -eq 1 ]; then
+    vibflags="-I";
+fi
+if [ "$SoftModeCutoff" != "-1" ]; then
+    vibflags=$vibflags" -C $SoftModeCutoff";
+    echo "using vibflags: "$vibflags;
+fi
+echo "using vibflags: "$vibflags >> octave_work/data.dat;
+
+# first activate participating atoms
+for i in OUTCAR*static; do
+    tag_pre=${i##OUTCAR-}
+    tag=${tag_pre%%-static}
+    contcar=CONTCAR-${tag}
+
+    grep Z: $contcar > temp
+    num_atom_types=$((`cat temp | wc -w `-1))
+    atom_types=`grep Z: $contcar | awk ' {for (i=2;i<=NF;i++) { printf("%d ", $i) } printf("\n") } ' ` 
+ 
+ # activate atoms
+    for (( j=1; j<=$num_atom_types; j++ ))
+      do
+      elem=` echo $atom_types | awk -v choose=$j  ' { print $choose } ' `
+      active[elem]=1
+    done
+done
+
+echo " " | awk ' { printf("%-32s%-10s%-5s%-5s %-14s","phase","molwt","gas","use","static(eV/fu)") } ' >> octave_work/data.dat
+
+for i in {1..100}; do
+    if [ "${active[i]}" = "1" ];  then
+	elem_name=` echo $i | awk -f $PDTOP/Get_Elem_Name.awk `
+	echo $elem_name | awk  ' { printf("%5s", $1) } ' >>  octave_work/data.dat
+    fi
+done
+
+echo " " | awk ' { printf(" end\n") } ' >> octave_work/data.dat
+
+# now grab data from each phase and print
+for i in OUTCAR*static ; do
+    tag_pre=${i##OUTCAR-}
+    tag=${tag_pre%%-static}
+    
+    static=OUTCAR-${tag}-static
+    dynamic=OUTCAR-${tag}-dynamic
+    contcar=CONTCAR-${tag}
+
+    if [ $dbg -eq 1 ]; then
+	echo "##########   getting data from tag= "$tag "   ###############";
+    fi
+
+# check if this is a gas molecule
+# convert to V4 poscar style if needed
+    if [ ! -s $contcar ]; then
+	echo "CONTCAR "$contcar " is empty. Skipping."
+	continue
+    fi
+    isV5=`cat $contcar | awk '(NR==6 && $0!~"[0-9]"){print 1}(NR==6 && $0~"[0-9]"){print 0}'`;
+    if [ $isV5 -eq 1 ]; then
+	cat $contcar | awk '(NR!=6){print $0}' > tempfile.contcar.POSv4;
+    else
+	cat $contcar > tempfile.contcar.POSv4;
+    fi
+    
+# calculate the density and check to see if this is a gas molecule in a big box
+    density=`cat tempfile.contcar.POSv4 | igawk -f $PDTOP/contcar_info.awk | grep Density | awk '{print $3}'`
+    if [ $dbg -eq 1 ]; then
+	echo "density= "$density
+    fi
+    isgas=`echo $density | gawk --source '($1>MD){print 0}($1<=MD){print 1}' -v MD=$MINDENSITY`;
+
+ # grab energies (this only works because there are
+ # two spaces between 'free' and 'energy' for the final static energy)
+    energy=`grep "free  energy" $static | tail -1 | awk ' { print $5 } ' `
+    if [ $dbg -eq 1 ]; then
+	echo "static energy= "$energy;
+    fi
+ # grab atom_types
+    grep Z: $contcar > temp
+    num_atom_types=$((`cat temp | wc -w `-1))
+    atom_types=`grep Z: $contcar | awk ' {for (i=2;i<=NF;i++) { printf("%d ", $i) } printf("\n") } ' ` 
+
+ # test if contcar is Version 4 or 5 and grab appropriate line for atom counts
+    test_num=`sed -n 6p $contcar | awk ' { print $1 } ' `
+    
+    if echo $test_num | egrep "^[0-9]+$">aux 
+	then
+	atom_counts=` sed -n 6p $contcar `
+    else
+	atom_counts=` sed -n 7p $contcar `
+    fi
+
+    unset atom_count
+ #also find minimum atom count in this loop
+    atom_count_min=1000
+    for ((j=1; j<=$num_atom_types; j++))
+      do
+      atom_type=`echo $atom_types | awk -v choose=$j ' { print $choose } ' `
+      atom_count[atom_type]=`echo $atom_counts | awk -v choose=$j ' { print $choose } ' `
+      if [ "$atom_count_min" -gt "${atom_count[atom_type]}" ]; then
+	  atom_count_min=${atom_count[atom_type]}
+      fi
+    done
+
+# determine number of forumla units
+    for ((j=$atom_count_min; j>0 ; j-- ))
+      do
+  #test if divides by other atoms
+	if [ $dbg -eq 1 ]; then
+	    echo "j_loop= "$j "  atom counts= "$atom_counts
+	fi
+      fu_found=`echo $atom_counts | awk -v fu=$j ' BEGIN{ divisor = "true"  } { for (i=1 ; i<=NF; i++)  \
+                { if ($i % fu != 0)  {divisor = "false"}};  print divisor  } '`
+      if [ $fu_found == "true" ];then
+	  fu=$j
+	  if [ $isgas -eq 1 ]; then
+	      fu=1; # if molecule, we want only 1fu (e.g. B2H6 is not BH3)
+	  fi
+	  break
+      fi
+    done
+    if [ $dbg -eq 1 ]; then
+	echo "number of fu= "$fu
+    fi
+
+ #generate atom count_matrix
+    printed_counts=""
+    for j in {1..50}
+      do
+      if [ "${active[j]}" = "1" ]; then
+	  if [ -z ${atom_count[j]} ]; then
+	      printed_counts="$printed_counts 0 "
+	  else
+	      printed_counts="$printed_counts ${atom_count[j]} "
+	  fi
+      fi
+    done
+
+
+# get the molecular weight of the compound
+    molwt=`cat tempfile.contcar.POSv4 | igawk -f contcar_info.awk | grep amu | awk '{print $4}'`;
+    molwtfu=`echo | awk --source 'BEGIN{printf("%.3f",MW/FU);}' -v MW=$molwt -v FU=$fu`
+    if [ $dbg -eq 1 ]; then
+	echo "Mol wt of "$contcar "= "$molwt  "no. fu= "$fu " molwt/fu= "$molwtfu;
+    fi
+
+# generate vibrational file with fu argument and check for imaginary modes
+    echo "calculating free energy and entropy for "$dynamic
+
+    if [ $UseModesFiles -eq 0 ]; then
+	$PDTOP/vib_energy.sh -f $dynamic -c $contcar -T 2000 -u $fu -i 1 -g $isgas  $vibflags  > tmp.vib.file;
+	cat $dynamic | grep THz > octave_work/modes/${tag}.mods.dat;
+    fi
+    if [ $UseModesFiles -eq 1 ]; then
+	temp_dynamic=octave_work/modes/${tag}.mods.dat;
+	$PDTOP/vib_energy.sh -f $temp_dynamic -c $contcar -T 2000 -u $fu -i 1 -g $isgas  $vibflags  > tmp.vib.file;
+    fi
+	
+    img_flag=`cat tmp.vib.file | grep IMG | wc -l`;
+
+    if [ $img_flag -gt 0 ]; then
+	echo "-------> !! File $tag has imaginary modes. Skipping this file. !!"
+    else
+	cat tmp.vib.file > octave_work/${tag}.dat
+	epfu=`echo " scale=10; $energy/$fu " | bc`;
+	nfld=5; # need to increase the number of fields if adding new columns
+	echo $tag " " $molwtfu " " $isgas " " $epfu " " $printed_counts | \
+	    awk -v fu=$fu -v NFLD=$nfld --source \
+            '{ printf(" %-30s %8.2f %4d  1  %14.6f   ", $1, $2, $3, $4);\
+                                for(i=NFLD; i<=NF; i++) { printf("%5d", $i/fu ) };\
+                                printf("\n") }' >> octave_work/data.dat
+	
+    fi
+
+    # print information to info files
+    gawk --source 'BEGIN{printf("%-30s%10.2f%9.3f%8d%13.3f\n",tag,molwt,dens,gas,en);}' -v tag=$tag -v molwt=$molwtfu -v dens=$density -v gas=$isgas -v en=$epfu >> octave_work/info/info.dat
+    
+done
+
+echo " end" >> octave_work/data.dat
+echo >> octave_work/data.dat
+cat CONTROL >> octave_work/data.dat
+
+if [ -e tempfile.contcar.POSv4 ]; then
+    rm -f tempfile.contcar.POSv4;
+fi
+rm *temp aux;
+rm tmp.vib.file;
+exit
