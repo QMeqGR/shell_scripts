@@ -1,0 +1,373 @@
+#!/bin/bash
+
+script_name="plotDOS"
+script_version=1.4
+script_date="07 May 2016"
+
+BASE=/home/ehm
+
+# v 1.4 - merge with plotDOS_spd_updown.sh so there is no
+#         duplication of code functions. (added spinpol tag)
+# v 1.3 - get element name from CONTCAR chemistry.txt file
+# v 1.2 - add option for ticks
+
+#############################################
+# awkfiles
+Z_TO_ELM=$VT_TOP/awkfiles/z_to_elm.awk
+
+# defaults
+dbg=0;
+help=0;
+jpegout=0;
+startgv=1;
+tick=10:2
+title="";
+pdfout=0;
+range="AUTO";
+spinpol=0;
+
+declare SWITCH
+while getopts "df:hjpR:st:T:" SWITCH; do
+    case $SWITCH in
+    d) dbg=1 ;;
+    f) input=$OPTARG ;;
+    h) help=1 ;;
+    j) jpegout=1; startgv=0 ;;
+    p) pdfout=1;  startgv=0 ;;
+    R) range=$OPTARG ;;
+    s) spinpol=1; range="-9:3" ;;
+    t) tick=$OPTARG ;;
+    T) title=$OPTARG ;;
+    esac
+done
+
+if [ $help -eq 1 ] || [ $# -eq 0 ]; then
+    echo
+    echo "#######################"
+    echo "#    "$script_name
+    echo "#######################"
+    echo
+    echo "version: "$script_version
+    echo "last update: "$script_date
+    echo
+    echo "use: plotDOS.sh -f infile [opts]"
+    echo 
+    echo
+    echo "    -h --- show this help"
+    echo "    -d --- debug"
+    echo
+    echo "    -f -*- input file name"
+    echo "    -s --- spin polarized calculation (old plotDOS_spd_updown.sh script)"
+    echo "        spin pol calc works with 13 column file:"
+    echo "        1  2   3         4   5         6   7            13"
+    echo "        en sup sup-integ sdn sdn-integ pup pup-integ... ddn-integ"
+    echo
+    echo "    -j --- jpeg output (default is viewing in gv)"
+    echo "    -p --- pdf output  (default is viewing in gv)"
+    echo
+    echo "    -R -*- x-range (use colon and quotes) e.g. -R \"-20:50\""
+    echo "    -t -*- x-ticks (use colon and quotes) e.g. -t \"-10:2\" (default)"
+    echo "    -T -*- title (use quotes if there are spaces)"
+    echo
+    echo
+    echo Eric Majzoub
+    echo University of Missouri - St. Louis
+    echo original script date: 6 June 2013
+    echo
+    echo
+    exit
+fi
+
+
+##################################################
+##################################################
+# Range parms
+xlo=$(echo $range | igawk -F ":" --source '{print $1}')
+xhi=$(echo $range | igawk -F ":" --source '{print $2}')
+if [ $dbg -eq 1 ]; then
+    echo "xlo= "$xlo
+    echo "xhi= "$xhi
+fi
+
+if [ "$range" == "AUTO" ]; then
+    RANGE=AUTOSCALE;
+else
+    RANGE="WORLD XMIN $xlo; WORLD XMAX $xhi;"
+fi
+
+# tick parms
+tickmajor=$(echo $tick | igawk -F ":" --source '{print $1}')
+tickminor=$(echo $tick | igawk -F ":" --source '{print $2}')
+TICKMAJOR="xaxis tick major $tickmajor"
+TICKMINOR="xaxis tick minor $tickminor"
+if [ $dbg -eq 1 ]; then
+    echo "tickmajor= "$tickmajor
+    echo "tickminor= "$tickminor
+    echo "TICKMAJOR= "$TICKMAJOR
+    echo "TICKMINOR= "$TICKMINOR
+fi
+
+# get the element name if the chemistry.txt file exists
+# (this only works if the plotBANDS command was used, and "poscar_cnvrt -f CONTCAR -l" was issued)
+if [ -e ../chemistry.txt ]; then
+    echo "Found ../chemistry.txt file. Will try to get element name."
+    atom_number=$(echo $input | gawk -F "_" '{print $2}');
+    echo "atom_number= "$atom_number
+    atype=$(cat ../chemistry.txt | gawk --source '(AN >= $2 && AN <= $3){print $1}' -v AN=$atom_number)
+    echo "found atype= "$atype
+    zatom=$( cat ../chemistry.txt  | gawk --source '(NR==3){for(i=1;i<NF+1;i++){if ($i==AT){printf("%s", $(i+1) ) } }}' -v AT=$atype )
+    echo "from filename, guessing zatom= "$zatom;
+    element=$( igawk -f $Z_TO_ELM -v ZZ=$zatom )
+    echo "found element= "$element
+    if [ "$title" == "" ]; then
+	echo "setting title... "
+	title="$element \#$atom_number"
+    fi
+fi
+
+
+
+##################################################
+#   non spin polarized
+##################################################
+cat > batch.agr<<EOF
+
+READ BLOCK "$input"
+
+arrange (6,1,0.1,.1,.0)
+
+######################## S-DOS
+focus g0
+view 0.1, 0.1, 1.15, 0.38
+BLOCK xy "1:2"
+s0 line color 1
+$RANGE
+$TICKMAJOR
+$TICKMINOR
+yaxis label "s-DOS"
+yaxis tick place normal
+xaxis label "Energy [eV]"
+
+focus g1
+view 0.1, 0.1, 1.15, 0.38
+BLOCK xy "1:3"
+$RANGE
+$TICKMAJOR
+$TICKMINOR
+yaxis label place opposite
+yaxis tick place opposite
+yaxis ticklabel place opposite
+s0 line color 2
+
+
+######################## P-DOS
+focus g2
+view 0.1, 0.38, 1.15, 0.66
+BLOCK xy "1:4"
+$RANGE
+$TICKMAJOR
+$TICKMINOR
+s0 line color 1
+xaxis ticklabel off
+yaxis tick place normal
+yaxis label "p-DOS"
+
+focus g3
+view 0.1, 0.38, 1.15, 0.66
+s0 line color 2
+BLOCK xy "1:5"
+$RANGE
+$TICKMAJOR
+$TICKMINOR
+yaxis label place opposite
+yaxis label "i-dos"
+yaxis tick place opposite
+yaxis ticklabel place opposite
+xaxis ticklabel off
+
+
+
+######################## D-DOS
+focus g4
+view 0.1, 0.66, 1.15, 0.94
+BLOCK xy "1:6"
+s0 line color 1
+$RANGE
+$TICKMAJOR
+$TICKMINOR
+subtitle "$title"
+yaxis tick place normal
+xaxis ticklabel off
+yaxis label "d-DOS"
+
+focus g5
+view 0.1, 0.66, 1.15, 0.94
+BLOCK xy "1:7"
+s0 line color 2
+$RANGE
+$TICKMAJOR
+$TICKMINOR
+xaxis ticklabel off
+yaxis label place opposite
+yaxis tick place opposite
+yaxis ticklabel place opposite
+
+
+
+###################################
+PRINT TO "$input.plot.eps"
+DEVICE "EPS" OP "level2"
+PRINT
+
+EOF
+
+##################################################
+#   spin polarized
+##################################################
+cat > batch.spinpol.agr<<EOF
+
+READ BLOCK "$input"
+
+arrange (6,1,0.1,.1,.0)
+
+######################## S-DOS
+focus g0
+view 0.1, 0.1, 1.15, 0.38
+BLOCK xy "1:2"
+s0 line color 4
+BLOCK xy "1:4"
+s1 line color 2
+WORLD XMIN $xmin
+WORLD XMAX $xmax
+AUTOSCALE YAXES
+$TICKMAJOR
+$TICKMINOR
+yaxis label "s-DOS"
+yaxis tick place normal
+xaxis label "Energy [eV]"
+
+focus g1
+view 0.1, 0.1, 1.15, 0.38
+BLOCK xy "1:3"
+s0 line color 4
+s0 linestyle 2
+BLOCK xy "1:5"
+s1 line color 2
+s1 linestyle 2
+WORLD XMIN $xmin
+WORLD XMAX $xmax
+AUTOSCALE YAXES
+$TICKMAJOR
+$TICKMINOR
+yaxis label place opposite
+yaxis tick place opposite
+yaxis ticklabel place opposite
+
+
+######################## P-DOS
+focus g2
+view 0.1, 0.38, 1.15, 0.66
+BLOCK xy "1:6"
+s0 line color 4
+BLOCK xy "1:8"
+s1 line color 2
+WORLD XMIN $xmin
+WORLD XMAX $xmax
+AUTOSCALE YAXES
+$TICKMAJOR
+$TICKMINOR
+xaxis ticklabel off
+yaxis tick place normal
+yaxis label "p-DOS"
+
+focus g3
+view 0.1, 0.38, 1.15, 0.66
+BLOCK xy "1:7"
+s0 line color 4
+s0 linestyle 2
+BLOCK xy "1:9"
+s1 line color 2
+s1 linestyle 2
+WORLD XMIN $xmin
+WORLD XMAX $xmax
+AUTOSCALE YAXES
+$TICKMAJOR
+$TICKMINOR
+yaxis label place opposite
+yaxis label "i-dos"
+yaxis tick place opposite
+yaxis ticklabel place opposite
+xaxis ticklabel off
+
+
+######################## D-DOS
+focus g4
+view 0.1, 0.66, 1.15, 0.94
+BLOCK xy "1:10"
+s0 line color 4
+BLOCK xy "1:12"
+s1 line color 2
+WORLD XMIN $xmin
+WORLD XMAX $xmax
+AUTOSCALE YAXES
+$TICKMAJOR
+$TICKMINOR
+subtitle "$input"
+yaxis tick place normal
+xaxis ticklabel off
+yaxis label "d-DOS"
+
+focus g5
+view 0.1, 0.66, 1.15, 0.94
+BLOCK xy "1:11"
+s0 line color 4
+s0 linestyle 2
+BLOCK xy "1:13"
+s1 line color 2
+s1 linestyle 2
+WORLD XMIN $xmin
+WORLD XMAX $xmax
+AUTOSCALE YAXES
+$TICKMAJOR
+$TICKMINOR
+xaxis ticklabel off
+yaxis label place opposite
+yaxis tick place opposite
+yaxis ticklabel place opposite
+
+
+###################################
+PRINT TO "$input.plot.eps"
+DEVICE "EPS" OP "level2"
+PRINT
+
+EOF
+
+if [ $spinpol -eq 0 ]; then
+    gracebat -batch batch.agr -nosafe -hardcopy;
+fi
+if [ $spinpol -eq 1 ]; then
+    gracebat -batch batch.spinpol.agr -nosafe -hardcopy;
+fi
+
+if [ $dbg -eq 0 ]; then
+    rm -f batch.agr batch.spinpol.agr;
+fi
+
+if [ $jpegout -eq 1 ]; then
+    convert $input.plot.eps -rotate 90  $input.plot.jpg;
+fi
+if [ $pdfout -eq 1 ]; then
+    convert $input.plot.eps -rotate 90  $input.plot.pdf;   
+fi
+
+
+if [ $startgv -eq 1 ]; then
+    gv $input.plot.eps;
+fi
+
+rm -f *.plot.eps;
+
+echo "Done."
+
+exit

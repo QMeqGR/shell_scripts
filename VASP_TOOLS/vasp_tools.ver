@@ -1,0 +1,15 @@
+package_version=2.1.5
+PACKAGE_TOP=/home/ehm/src/VASP_TOOLS
+
+# version 2.1.5, 26 Jun 2018
+# -- corrected bader code analysis
+# version 2.1.4, 08 Nov 2017
+# -- added code for quartz cluster at llnl
+# version 2.1.2, 14 June 2017
+# -- moved the plotDOS, plotBAND, and ... functions into the
+#    package
+# Version 2.1.1, 13 June 2017, ehm
+# -- packaging up all the vasp tools for the first time starting
+#    with VASP_setup 2.1.1
+#    
+#
