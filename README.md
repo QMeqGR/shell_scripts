@@ -3,3 +3,5 @@ gnufit.sh -- uses the fitting capabilities of gnuplot to fit x-y data files via 
 iscd_cnvrt -- converts ICSD structure files to VASP and other formats
 
 VASP tools -- manipulation of vasp files and running VASP on a cluster
+
+PDcalc -- calculate phase diagrams using Octave or Matlab
